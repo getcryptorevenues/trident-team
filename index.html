@@ -934,7 +934,11 @@ const R3D=(()=>{let moonL=null,PP=null,comp=null,rpass=null,bloom=null,FX=null,L
       if(!T3)T3=buildTitle();
       const dt=T3.last?Math.min(0.1,now-T3.last):0;T3.last=now;
       for(const g of T3.squad)animate(g.o,g.e,dt,g.st);
-      T3.lamp.intensity=T3.lampI*(Math.sin(now*19)*Math.sin(now*5.1)>-.35?1:.35);
+      // lamp: steady most of the time; every 7-14 s a soft flicker lasting 1-2 s
+      if(!T3.fNext)T3.fNext=now+4;
+      if(now>=T3.fNext&&!T3.fEnd){T3.fEnd=now+1+Math.random();}
+      let tgt=1;if(T3.fEnd){if(now<T3.fEnd){const k=now*6.5;tgt=(Math.sin(k)*Math.sin(k*.37+1.3)>0.15)?0.45:1;}else{T3.fEnd=0;T3.fNext=now+7+Math.random()*7;}}
+      T3.lv=(T3.lv||1)+(tgt-(T3.lv||1))*Math.min(1,dt*9);T3.lamp.intensity=T3.lampI*T3.lv;{const v=0.3+0.7*T3.lv;T3.bulb.material.color.setRGB(v,.85*v,.63*v);}
       const pa=T3.dust.geometry.attributes.position;for(let i=0;i<pa.count;i++){let y=pa.getY(i)+dt*(.05+(i%7)*.01);if(y>3)y=0;pa.setY(i,y);pa.setX(i,pa.getX(i)+Math.sin(now*.3+i)*dt*.05);}pa.needsUpdate=true;
       const port=w<h,yaw=-0.3+Math.sin(now*0.07)*0.3,dist=port?10.5:7.6,tx=port?0.1:-0.2,tz=0.4;
       camera.position.set(tx+Math.sin(yaw)*dist,1.5+Math.sin(now*0.11)*0.15,tz+Math.cos(yaw)*dist);
@@ -988,7 +992,7 @@ const R3D=(()=>{let moonL=null,PP=null,comp=null,rpass=null,bloom=null,FX=null,L
     box(.06,.06,.25,.85,1.05,-.04,std(0x999999,{metalness:.8,roughness:.3}));
     for(const[x,y,w,h,lit]of[[-3,1.9,1.1,.9,0],[3.6,1.9,1.1,.9,1],[-3,5.0,1.1,1.1,0],[.5,5.0,1.1,1.1,1],[3.6,5.0,1.1,1.1,0],[-6,5.0,1.1,1.1,0]]){box(w,h,.1,x,y,.17,lit?new THREE.MeshBasicMaterial({color:0x6a4a22}):std(0x0b0f12,{roughness:.15,metalness:.4}));box(w+.12,.08,.22,x,y-h/2,.22,trimM);}
     // lamp over the door
-    const bulb=new THREE.Mesh(new THREE.SphereGeometry(.07,12,8),new THREE.MeshBasicMaterial({color:0xffd9a0}));bulb.position.set(.5,2.55,.32);sc.add(bulb);
+    const bulb=new THREE.Mesh(new THREE.SphereGeometry(.07,12,8),new THREE.MeshBasicMaterial({color:0xffffff}));bulb.material.color.set(0xffd9a0);bulb.position.set(.5,2.55,.32);sc.add(bulb);
     box(.3,.05,.22,.5,2.62,.3,trimM);
     const lamp=new THREE.PointLight(0xffb36b,9,7,1.6);lamp.position.set(.5,2.45,.45);lamp.castShadow=true;lamp.shadow.mapSize.set(512,512);lamp.shadow.bias=-0.002;sc.add(lamp);
     // props
@@ -1015,7 +1019,7 @@ const R3D=(()=>{let moonL=null,PP=null,comp=null,rpass=null,bloom=null,FX=null,L
     const N=140,pp=new Float32Array(N*3);for(let i=0;i<N;i++){pp[i*3]=-3+Math.random()*7;pp[i*3+1]=Math.random()*3;pp[i*3+2]=Math.random()*3;}
     const dg=new THREE.BufferGeometry();dg.setAttribute('position',new THREE.BufferAttribute(pp,3));
     const dust=new THREE.Points(dg,new THREE.PointsMaterial({color:0xffe2b8,size:.025,transparent:true,opacity:.55,depthWrite:false}));sc.add(dust);
-    return {scene:sc,squad,lamp,lampI:9,dust,last:0};}
+    return {scene:sc,squad,lamp,lampI:9,dust,bulb,last:0};}
   const SCALE=0.62;
   function person(kind,o){const A=ASSETS,root=new THREE.Group();
     const src=(o.female?A.female:A.male).scene,model=LIB.SU.clone(src);
