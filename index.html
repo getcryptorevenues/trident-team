@@ -135,6 +135,52 @@ textarea{width:100%;box-sizing:border-box;min-height:130px;background:#0d1310;co
 // DATA
 // =====================================================================
 const W=16,VH=26;let H=26;
+// =====================================================================
+// LANGUAGES. English text is the key. Each visible segment is normalised
+// (numbers and proper names become {0},{1}…) and looked up in the table of
+// the current language, loaded from assets/lang/<code>.js. Missing → English.
+// =====================================================================
+const LANGS=[['en','English'],['es','Español'],['fr','Français'],['de','Deutsch'],['pt','Português (Brasil)'],['ja','日本語'],['ko','한국어'],['zh','繁體中文'],['cs','Čeština']];
+window.TRIDENT_LANG=window.TRIDENT_LANG||{};
+let LANG=(()=>{try{const s=localStorage.getItem('trident_lang');if(s&&LANGS.some(l=>l[0]===s))return s;}catch(_){}
+  const n=(navigator.languages||[navigator.language||'en']).map(x=>String(x).toLowerCase());
+  for(const x of n){if(/^zh-(hant|tw|hk|mo)/.test(x))return 'zh';const b=x.slice(0,2);if(b!=='zh'&&LANGS.some(l=>l[0]===b))return b;}return 'en';})();
+const I18N={names:null,miss:new Set(),collect:null};
+function i18nNames(){if(I18N.names)return I18N.names;const L=['Sparrow'];
+  try{ROSTER_DEF.forEach(r=>L.push(r.name));RANKS.forEach(r=>L.push(r[1]));MISSIONS.forEach(m=>L.push(m.name));PREMIUM.forEach(m=>L.push(m.name));}catch(_){return null;}
+  L.sort((a,b)=>b.length-a.length);I18N.names=new RegExp('\\b('+L.map(x=>x.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|')+')\\b','g');return I18N.names;}
+function trSeg(seg){
+  const lead=seg.match(/^\s*/)[0],trail=seg.match(/\s*$/)[0],core=seg.trim();
+  if(!/[A-Za-z]{2}/.test(core.replace(/<[^>]*>/g,'')))return seg;
+  const vals=[],nm=i18nNames();
+  const ph=m=>{vals.push(m);return '\u0001'+(vals.length-1)+'\u0002';};
+  let src=core.replace(/<(\w+)[^>]*\bdata-nt\b[^>]*>[\s\S]*?<\/\1>/g,ph).replace(/<(\w+)\b[^>]*>([^<]*)<\/\1>/g,(m,t,inner)=>/[A-Za-z]{2}/.test(inner)?m:ph(m));
+  // placeholders only in text, never inside tags
+  const key=src.replace(/\s+/g,' ').split(/(<[^>]*>)/).map(p=>{if(p[0]==='<')return p;
+    p=p.replace(/[^\s@<>]+@[^\s@<>]+\.[A-Za-z]{2,}/g,ph);if(nm)p=p.replace(nm,ph);
+    return p.replace(/\d+(?:[:.,/]\d+)*/g,(m,o,str)=>str[o-1]==='\u0001'?m:ph(m));}).join('').replace(/\u0001(\d+)\u0002/g,'{$1}');
+  if(I18N.collect)I18N.collect.add(key);
+  if(LANG==='en')return seg;const D=window.TRIDENT_LANG[LANG];if(!D)return seg;
+  let t=D[key];if(t==null){I18N.miss.add(key);return seg;}
+  return lead+t.replace(/\{(\d+)\}/g,(_,i)=>{const v=vals[+i];return v==null?'':(D[v]!=null?D[v]:v);})+trail;}
+const tr=s=>(s==null||(LANG==='en'&&!I18N.collect))?s:trSeg(String(s));
+const INLINE=new Set(['B','I','EM','STRONG','SPAN','SMALL','A','SUB','SUP','CODE','KBD','BR']);
+const i18nDone=new WeakMap();
+function trEl(el){
+  if(el.nodeType!==1||el.hasAttribute('data-nt')||el.tagName==='SCRIPT'||el.tagName==='STYLE'||el.tagName==='CANVAS'||el.tagName==='svg')return;
+  let leaf=true,hasText=false;
+  for(const c of el.childNodes){if(c.nodeType===3){if(c.nodeValue.trim())hasText=true;}else if(c.nodeType===1&&!INLINE.has(c.tagName))leaf=false;}
+  if(leaf&&hasText){const h=el.innerHTML,tag=LANG+(window.TRIDENT_LANG[LANG]?'+':'-')+'|';if(i18nDone.get(el)===tag+h)return;const t=trSeg(h);if(t!==h){el.innerHTML=t;}i18nDone.set(el,tag+el.innerHTML);return;}
+  for(const c of [...el.childNodes]){if(c.nodeType===3){if(c.nodeValue.trim()){const t=trSeg(c.nodeValue);if(t!==c.nodeValue)c.nodeValue=t;}}else trEl(c);}
+  if(el.placeholder){const t=trSeg(el.placeholder);if(t!==el.placeholder)el.placeholder=t;}}
+let i18nBusy=false;
+const i18nObs=new MutationObserver(ms=>{if(i18nBusy||(LANG==='en'&&!I18N.collect))return;i18nBusy=true;
+  try{const seen=new Set();for(const m of ms){let n=m.type==='characterData'?m.target.parentNode:m.target;if(n&&!seen.has(n)){seen.add(n);trEl(n);}}}finally{i18nObs.takeRecords();i18nBusy=false;}});
+function i18nStart(){i18nObs.observe(document.body,{subtree:true,childList:true,characterData:true});trEl(document.body);}
+function loadLang(code){return new Promise(res=>{if(code==='en'||window.TRIDENT_LANG[code])return res(true);
+  const sc=document.createElement('script');sc.src='assets/lang/'+code+'.js';sc.onload=()=>res(true);sc.onerror=()=>res(false);document.head.appendChild(sc);});}
+function setLang(code,after){LANG=code;try{localStorage.setItem('trident_lang',code);}catch(_){}document.documentElement.lang=code;
+  loadLang(code).then(()=>{after&&after();trEl(document.body);});}
 const FLASH_R=2.6, FLASH_RANGE=7, EXEC_TIME=6, DEFUSE_TIME=4, CHARGE_R=2.5;
 const OPEN=[ "#..............#" ];
 const yard=n=>Array(n).fill("#..............#");
@@ -222,7 +268,7 @@ function tutStart(){TUT=TUT_STEPS[M.id]?{i:0,steps:TUT_STEPS[M.id]}:null;tutF={}
 function tutRender(){const el=$('tut');document.querySelectorAll('.hl').forEach(e=>e.classList.remove('hl'));
   if(!TUT||!inGame()){el.style.display='none';return;}
   const st=TUT.steps[TUT.i];if(!st){el.style.display='none';return;}
-  el.style.display='block';el.innerHTML='<div class="h"><span>'+M.name.toUpperCase()+' · STEP '+(TUT.i+1)+'/'+TUT.steps.length+'</span><button id="tutSkip">HIDE</button></div>'+st.t;
+  el.style.display='block';el.innerHTML='<div class="h"><span>'+M.name.toUpperCase()+' · STEP '+(TUT.i+1)+'/'+TUT.steps.length+'</span><button id="tutSkip">HIDE</button></div><div>'+st.t+'</div>';
   $('tutSkip').onclick=()=>{TUT=null;tutRender();};
   if(st.hl){const h=st.hl[0]==='.'?document.querySelector(st.hl):$(st.hl);if(h)h.classList.add('hl');}}
 function tutTick(){if(!TUT||!inGame())return;let moved=false;while(TUT.steps[TUT.i]&&TUT.steps[TUT.i].done()){TUT.i++;moved=true;}if(moved){SFX.click();tutRender();}}
@@ -450,7 +496,7 @@ function los(x0,y0,x1,y1,ignoreDoors){const dx=x1-x0,dy=y1-y0,n=Math.ceil(Math.h
 function freeAt(x,y){const r=0.22;for(const[a,b]of[[-r,-r],[r,-r],[-r,r],[r,r]])if(blocksMove(Math.floor(x+a),Math.floor(y+b)))return false;return true;}
 function pathEnd(o){return o.path.length>o.pathIdx?o.path[o.path.length-1]:null;}
 function plannedFlashes(o){let n=0;for(let i=o.pathIdx;i<o.path.length;i++)if(o.path[i].flash&&!o.path[i].flashDone)n++;return n;}
-function addText(x,y,s,c){texts.push({x,y,s,c:c||'#fff',t:1.2});if(['VIP SECURED','HVT CAPTURED','DEFUSED','INTEL'].includes(s))SFX.objective();else if(s==='WIPED'||s==='VIP DOWN')SFX.bad();}
+function addText(x,y,s,c){texts.push({x,y,s:tr(s),c:c||'#fff',t:1.2});if(['VIP SECURED','HVT CAPTURED','DEFUSED','INTEL'].includes(s))SFX.objective();else if(s==='WIPED'||s==='VIP DOWN')SFX.bad();}
 const hostiles=()=>enemies.filter(e=>!e.hvt&&e.hp>0).length;
 const leadBonus=()=>ops.some(o=>o.hp>0&&o.lead)?0.04:0;
 
@@ -894,22 +940,22 @@ function drawUI(v,now){
   ctx.font='700 '+Math.max(9,Math.round(T*.34))+'px '+font;
   ops.forEach(o=>{const p=S(o.x,o.y-.66);ctx.strokeStyle='rgba(0,0,0,.8)';ctx.lineWidth=3;ctx.strokeText(o.name,...p);ctx.fillStyle=o.hp>0?o.color:'#777';ctx.fillText(o.name,...p);});
   ctx.font='700 '+Math.max(7,Math.round(T*.26))+'px '+font;
-  const tag=(t,x,y,c)=>{const p=S(x,y);ctx.strokeStyle='rgba(0,0,0,.8)';ctx.lineWidth=3;ctx.strokeText(t,...p);ctx.fillStyle=c;ctx.fillText(t,...p);};
+  const tag=(t,x,y,c)=>{t=tr(t);const p=S(x,y);ctx.strokeStyle='rgba(0,0,0,.8)';ctx.lineWidth=3;ctx.strokeText(t,...p);ctx.fillStyle=c;ctx.fillText(t,...p);};
   if(hostage&&hostage.alive)tag('VIP',hostage.x,hostage.y-.55,'#ffd34d');
   if(asset)tag(asset.hp>0?'SPARROW'+(asset.hp<asset.max?' (HIT)':''):'SPARROW DOWN',asset.x,asset.y-.6,asset.hp>0?'#ffd34d':'#ff6b5a');
-  if(asset){ctx.font='700 11px '+font;ctx.fillStyle='rgba(126,224,129,.85)';ctx.fillText('LZ · EXTRACTION',...S(W/2,M.obj.lzY-0.45));}
+  if(asset){ctx.font='700 11px '+font;ctx.fillStyle='rgba(126,224,129,.85)';ctx.fillText(tr('LZ · EXTRACTION'),...S(W/2,M.obj.lzY-0.45));}
   for(const e of enemies)if(e.hvt&&e.hp>0)tag(e.captured?'CAPTURED':'HVT',e.x,e.y-.55,e.captured?'#7ee081':'#ffb020');
   if(bomb&&!bomb.defused)tag('BOMB',bomb.x,bomb.y-.5,'#ff5a4a');
   if(intel)for(const it of intel)if(!it.got&&!it.wiped)tag('INTEL',it.x,it.y-.45,'#5ee6e0');
   if(M.marks&&TUT)for(const mk of M.marks)tag(mk.label,mk.x,mk.y-.85,'#ffd34d');
-  if(intel){ctx.font='700 11px '+font;ctx.fillStyle='rgba(126,224,129,.85)';ctx.fillText('EXTRACTION ZONE',...S(W/2,M.obj.extractY+0.45));}
+  if(intel){ctx.font='700 11px '+font;ctx.fillStyle='rgba(126,224,129,.85)';ctx.fillText(tr('EXTRACTION ZONE'),...S(W/2,M.obj.extractY+0.45));}
   if(box){const a=S(Math.min(box.x0,box.x1),Math.min(box.y0,box.y1)),b=S(Math.max(box.x0,box.x1),Math.max(box.y0,box.y1));ctx.setLineDash([5,4]);ctx.strokeStyle='#fff';ctx.lineWidth=1.5;ctx.strokeRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);ctx.fillStyle='rgba(255,255,255,.06)';ctx.fillRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);ctx.setLineDash([]);}
   ctx.font='800 '+Math.max(10,Math.round(T*.45))+'px system-ui,sans-serif';
   for(const t of texts){ctx.globalAlpha=Math.min(1,t.t*2);ctx.fillStyle=t.c;ctx.strokeStyle='rgba(0,0,0,.7)';ctx.lineWidth=3;const p=S(t.x,t.y-(1.2-t.t)*0.6);ctx.strokeText(t.s,...p);ctx.fillText(t.s,...p);}
   ctx.globalAlpha=1;ctx.font='700 12px '+font;
   const yb=oy0+Math.min(H,VH)*T-T*0.5;
-  if(!TUT&&(state==='plan'||state==='paused')){ctx.fillStyle='rgba(255,211,77,.95)';ctx.strokeStyle='rgba(0,0,0,.8)';ctx.lineWidth=3;const msg=state==='plan'?'PLANNING — drag from an operator to draw a route':'PAUSED — you can redraw routes';ctx.strokeText(msg,cw/2,yb);ctx.fillText(msg,cw/2,yb);}
-  if(mode==='flash'&&ops[sel]){ctx.fillStyle='#fff';ctx.strokeText('Tap where '+ops[sel].name+' throws the flashbang',cw/2,yb-18);ctx.fillText('Tap where '+ops[sel].name+' throws the flashbang',cw/2,yb-18);}
+  if(!TUT&&(state==='plan'||state==='paused')){ctx.fillStyle='rgba(255,211,77,.95)';ctx.strokeStyle='rgba(0,0,0,.8)';ctx.lineWidth=3;const msg=tr(state==='plan'?'PLANNING — drag from an operator to draw a route':'PAUSED — you can redraw routes');{const f0=ctx.font,wd=ctx.measureText(msg).width;if(wd>cw-16){const m=ctx.font.match(/(\d+(?:\.\d+)?)px/);if(m)ctx.font=ctx.font.replace(m[0],(+m[1]*(cw-16)/wd).toFixed(1)+'px');}ctx.strokeText(msg,cw/2,yb);ctx.fillText(msg,cw/2,yb);ctx.font=f0;}}
+  if(mode==='flash'&&ops[sel]){ctx.fillStyle='#fff';{const m=tr('Tap where '+ops[sel].name+' throws the flashbang');ctx.strokeText(m,cw/2,yb-18);ctx.fillText(m,cw/2,yb-18);}}
 }
 
 // =====================================================================
@@ -1225,7 +1271,7 @@ const R3D=(()=>{let moonL=null,PP=null,comp=null,rpass=null,bloom=null,FX=null,L
   const v3=()=>new THREE.Vector3();
   function proj(x,y,z){const v=v3().set(x,y,z).project(camera);return v.z>1?null:[(v.x+1)/2*cw,(1-v.y)/2*ch];}
   function labels(now){ctx.setTransform(dpr,0,0,dpr,0,0);ctx.textAlign='center';ctx.textBaseline='middle';
-    const tag=(t,p,c,sz)=>{if(!p)return;ctx.font='700 '+(sz||11)+'px system-ui,sans-serif';ctx.strokeStyle='rgba(0,0,0,.8)';ctx.lineWidth=3;ctx.strokeText(t,p[0],p[1]);ctx.fillStyle=c;ctx.fillText(t,p[0],p[1]);};
+    const tag=(t,p,c,sz)=>{if(!p)return;t=tr(t);ctx.font='700 '+(sz||11)+'px system-ui,sans-serif';ctx.strokeStyle='rgba(0,0,0,.8)';ctx.lineWidth=3;ctx.strokeText(t,p[0],p[1]);ctx.fillStyle=c;ctx.fillText(t,p[0],p[1]);};
     ops.forEach(o=>tag(o.name,proj(o.x,1.45,o.y),o.hp>0?o.color:'#888',12));
     if(hostage&&hostage.alive)tag(hostage.rescued?'VIP ✓':'VIP',proj(hostage.x,1.4,hostage.y),'#ffd34d');
     if(asset)tag(asset.hp>0?'SPARROW':'SPARROW DOWN',proj(asset.x,1.4,asset.y),asset.hp>0?'#ffd34d':'#ff6b5a');
@@ -1360,7 +1406,7 @@ function refreshUI(){
     const hb=b.querySelector('.hpb');if(hb.innerHTML!==bar)hb.innerHTML=bar;
     let st='☠'+o.kills+(fl>0?' ✷'+fl:'');
     const badge=o.hp<=0?['DOWN','#ff6b5a']:o.stun>0?['BLIND','#ffd34d']:o.waiting?['HOLD','#ffd34d']:o.tgt?['FIRE','#ff8a6a']:null;
-    const html=st+(badge?'<span class="bd" style="background:'+badge[1]+';color:#111">'+badge[0]+'</span>':'');
+    const html=st+(badge?'<span class="bd" data-nt style="background:'+badge[1]+';color:#111">'+tr(badge[0])+'</span>':'');
     const el=b.querySelector('.st');if(el.innerHTML!==html)el.innerHTML=html;});
   const over=time>M.par,tt=$('tTime');tt.textContent=over?'+'+mmss(time-M.par):'PAR '+mmss(M.par-time);tt.style.color=over?'#ff6b5a':'';
   const cl=clockLeft();$('tObj').innerHTML=objText()+(unconfirmed()?' <span style="color:#ff8a6a">+'+unconfirmed()+'?</span>':'')+(cl!==null&&M.obj.type!=='defuse'&&M.obj.type!=='escort'?' <span style="color:#ff6b5a">⚠ '+mmss(cl)+'</span>':'');
@@ -1399,7 +1445,7 @@ function hideOverlay(){titleOn=false;ov.className='hide';}
 const starStr=n=>'<span class="st3">'+'★'.repeat(n)+'<i>'+'★'.repeat(3-n)+'</i></span>';
 const on=(id,f)=>{const e=$(id);if(e)e.onclick=f;};
 
-const VERSION='v0.12 prototype';
+const VERSION='v0.13 prototype';
 const SUPPORT_EMAIL='david.stybr@gmail.com';
 const THUMBS={};
 function mapThumb(m){if(THUMBS[m.id])return THUMBS[m.id];const rows=m.map,h=Math.min(rows.length,26),off=rows.length-h,k=6,c=document.createElement('canvas');c.width=16*k;c.height=h*k;const g=c.getContext('2d');
@@ -1415,7 +1461,7 @@ function showMenu(){state='menu';SFX.ambient(false);tutRender();
   let strip='';MISSIONS.forEach((m,i)=>{const u=unlocked(i);strip+='<div class="tt-ms'+(u?'':' lock')+'" data-mi="'+i+'"><img src="'+mapThumb(m)+'" alt=""><span class="s">'+(u?'★'.repeat(starsOf(m.id))||'NEW':'🔒')+'</span><div class="c">'+(i+1)+' · '+m.name+'</div></div>';});
   PREMIUM.forEach((m,i)=>{strip+='<div class="tt-ms prem" data-pm="'+i+'"><img src="'+mapThumb(m)+'" alt=""><span class="s">'+(owns(m.pack)?'★'.repeat(starsOf(m.id)):'PREMIUM')+'</span><div class="c">'+m.name+'</div></div>';});
   showOverlay('<div class="tt-top"><svg class="tt-mark" width="46" height="46" viewBox="0 0 46 46"><circle cx="23" cy="23" r="20" fill="none" stroke="#9fd3b4" stroke-width="1.5" opacity=".7"/><path d="M23 6v10M23 30v10M6 23h10M30 23h10" stroke="#9fd3b4" stroke-width="2"/><path d="M15 27l8-9 8 9" fill="none" stroke="#ffd34d" stroke-width="2.4" stroke-linejoin="round"/></svg>'+
-    '<div class="tt-logo">TRIDENT</div><div class="tt-logo2">TEAM</div><div class="tt-ver">TACTICAL BREACH · '+VERSION.toUpperCase()+'</div></div>'+
+    '<div class="tt-logo" data-nt>TRIDENT</div><div class="tt-logo2" data-nt>TEAM</div><div class="tt-ver">TACTICAL BREACH · '+VERSION.toUpperCase()+'</div></div>'+
     '<div class="tt-bot"><div class="tt-panel">'+
     '<div class="tt-card" id="mProfC"><div class="rk">'+(rk.i+1)+'</div><div style="flex:1;min-width:0"><div class="nm">'+esc((P.callsign||'COMMANDER').toString().toUpperCase())+(owns('supporter')?' <span style="color:#ffd34d">★</span>':'')+'</div><div class="mt">'+rk.name+' · '+P.careerXP+' XP · '+totalStars()+'/12 ★</div></div><div class="mt">PROFILE ›</div></div>'+
     (newbie?'<div class="mt" style="text-align:center;margin:-2px 0 8px;color:#9fd3b4">New here? Start with <b>Training</b>.</div>':'')+
@@ -1473,9 +1519,14 @@ function showTraining(){state='menu';tutRender();
   h+='<p class="muted">Guided missions with role players. No XP, injuries or stars. Replay them anytime.</p><button class="sec" id="trBack">MENU</button>';
   showOverlay(h);ov.querySelectorAll('.mc').forEach(el=>el.onclick=()=>startTraining(+el.dataset.i));on('trBack',showMenu);
 }
+function showLang(){state='menu';let h='<h1>LANGUAGE</h1><div class="sub">Follows your phone by default</div>';
+  LANGS.forEach(([c,n])=>h+='<button class="mi" data-lg="'+c+'"><span data-nt>'+n+'</span><b>'+(c===LANG?'✓':'')+'</b></button>');
+  h+='<p class="muted">Translations are a first version. Spotted a mistake? Tell us through Contact support.</p><button class="big" id="lgBack">BACK</button>';
+  showOverlay(h);ov.querySelectorAll('[data-lg]').forEach(b=>b.onclick=()=>{SFX.click();setLang(b.dataset.lg,showLang);});on('lgBack',showSettings);}
 function showSettings(){state='menu';
   showOverlay('<h1>SETTINGS</h1><div class="sub">Trident Team · '+VERSION+'</div>'+
-    '<button class="mi" id="sAcc">Account <b>'+(NET===Supa&&Supa.ok?(Supa.guest?'GUEST':esc(Supa.email)):'THIS DEVICE')+'</b></button>'+
+    '<button class="mi" id="sAcc">Account '+(NET===Supa&&Supa.ok&&!Supa.guest?'<b data-nt>'+esc(Supa.email)+'</b>':'<b>'+(NET===Supa&&Supa.ok?'GUEST':'THIS DEVICE')+'</b>')+'</button>'+
+    '<button class="mi" id="sLang">Language <b data-nt>'+LANGS.find(l=>l[0]===LANG)[1]+'</b></button>'+
     '<button class="mi" id="sSound">Sound <b>'+(SFX.muted?'OFF':'ON')+'</b></button>'+
     '<button class="mi" id="sView">Planning view <b>'+(planView==='tac'?'TACTICAL':'REALISTIC')+'</b></button>'+
     '<button class="mi" id="sLive">Live view (after EXECUTE) <b>'+(liveView==='3d'?'3D':'2D')+'</b></button>'+
@@ -1484,7 +1535,7 @@ function showSettings(){state='menu';
     '<button class="mi" id="sTerms">Terms of use &amp; privacy <span>›</span></button>'+
     '<button class="mi" id="sReset" style="color:#ff8a6a">Reset all progress <span>›</span></button>'+
     '<button class="big" id="sBack">BACK</button>');
-  on('sAcc',showAccount);
+  on('sAcc',showAccount);on('sLang',showLang);
   on('sSound',()=>{SFX.init();SFX.toggle();showSettings();});
   on('sView',()=>{planView=planView==='tac'?'real':'tac';try{localStorage.setItem('trident_view',planView);}catch(_){}showSettings();});
   on('sLive',()=>{liveView=liveView==='3d'?'real':'3d';if(liveView==='3d')R3D.load();try{localStorage.setItem('trident_live',liveView);}catch(_){}showSettings();});
@@ -1495,7 +1546,7 @@ function showAccount(){state='menu';
   if(!(NET===Supa&&Supa.ok)){showOverlay('<div class="card" id="acc"><h1>ACCOUNT</h1><div class="sub">Sign-in</div><p>Sign-in with email works in the website version of the game:</p><p><b style="user-select:text;-webkit-user-select:text">getcryptorevenues.github.io/trident-team</b></p><p class="muted">'+cloudLine()+'</p><button class="big" id="acBack">BACK</button></div>');on('acBack',showSettings);return;}
   const inp='width:100%;box-sizing:border-box;background:#0d1310;color:#d8e2dc;border:1px solid #2b3832;border-radius:10px;padding:10px;font:inherit;margin-top:6px';
   let h='<div class="card" id="acc"><h1>ACCOUNT</h1>';
-  if(!Supa.guest){h+='<div class="sub">Signed in</div><p>Your progress is saved to <b>'+esc(Supa.email)+'</b> and syncs on every device where you sign in.</p><button class="sec" id="acOut">SIGN OUT</button>';}
+  if(!Supa.guest){h+='<div class="sub">Signed in</div><p>Your progress is saved to <b data-nt>'+esc(Supa.email)+'</b> and syncs on every device where you sign in.</p><button class="sec" id="acOut">SIGN OUT</button>';}
   else{h+='<div class="sub">Guest on this device</div><p>Your progress is only tied to this browser. Add your email to keep it safe and play on your phone and computer.</p>'+
     '<p style="margin-bottom:0"><b>Save progress to email</b></p><input id="acMail" type="email" placeholder="you@example.com" style="'+inp+'"><button class="big" id="acLink">SAVE PROGRESS TO EMAIL</button>'+
     '<p class="muted">You\'ll get an email; click the link in it to confirm. Your current progress stays.</p><hr style="border-color:#1f2a25;margin:16px 0">'+
@@ -1716,6 +1767,7 @@ function frame(now){
 }
 window.addEventListener('resize',resize);
 if(window.ResizeObserver)new ResizeObserver(resize).observe(cv);
+document.documentElement.lang=LANG;i18nStart();loadLang(LANG).then(()=>trEl(document.body));
 resize();showMenu();requestAnimationFrame(frame);
 </script>
 </body>
